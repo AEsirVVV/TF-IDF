@@ -1,0 +1,247 @@
+// SearchEngine.cpp —— TF-IDF 计算与检索排名模块的实现文件。
+//
+// 检索流程总览（search）：
+//   1. 查询串经 Tokenizer 分词（小写、去停用词）；
+//   2. 查询词条按与文档相同的 TF-IDF 公式向量化（稠密向量）；
+//   3. 用 InvertedIndex 预筛选候选文档（倒排索引，避免全量扫描）；
+//   4. 对每个候选文档计算查询向量与文档向量的余弦相似度；
+//   5. 用 std::priority_queue（小顶堆，固定 K 大小）挑出 Top-K；
+//   6. 堆内元素倒序输出 → 相似度从高到低的结果列表。
+
+#include "SearchEngine.h"
+
+#include <algorithm> 
+#include <cmath>     
+#include <queue>     
+#include <utility>   
+
+// 构造：初始化内部分词器并加载停用词表。
+SearchEngine::SearchEngine(const std::string& stopwordsFilePath)
+    : tokenizer_(stopwordsFilePath) {}
+
+// 重新加载停用词表（透传给内部 Tokenizer）。
+bool SearchEngine::loadStopwords(const std::string& stopwordsFilePath) {
+    return tokenizer_.loadStopwords(stopwordsFilePath);
+}
+
+// 构建索引与 TF-IDF 向量集。
+//
+// 算法（两遍扫描）：
+//   第一遍：分词 -> 写入倒排索引 -> 收集词典（词 -> 维度）；
+//   第二遍：逐文档统计词频，按公式 weight = tf * idf 填充稠密向量。
+//
+// 说明：同一文档被分词两次，代码更直白（可用缓存 token 优化，但项目数据量小，重复分词的开销可忽略）。
+void SearchEngine::build(const std::vector<Document>& docs) {
+    // 清空旧状态，使 build 可重复调用（重建索引）
+    docs_.clear();
+    termToDim_.clear();
+    documentFrequency_.clear();
+    docVectors_.clear();
+    index_.clear();
+    totalDocs_ = 0;
+    vocabSize_ = 0;
+
+    docs_ = docs;
+    totalDocs_ = static_cast<int>(docs.size());
+    if (docs.empty()) {
+        return;                    // 空语料：没有任何可索引内容
+    }
+
+    // ---------- 第一遍：分词 + 建倒排索引 + 收集词典 ----------
+    for (const Document& doc : docs) {
+        std::vector<std::string> tokens = tokenizer_.tokenize(doc.content);
+        index_.addDocument(doc.id, tokens);
+        for (const std::string& t : tokens) {
+            if (termToDim_.find(t) == termToDim_.end()) {
+                // 新词分配一个递增的维度下标
+                termToDim_.emplace(t, static_cast<int>(termToDim_.size()));
+            }
+        }
+    }
+    vocabSize_ = termToDim_.size();   // 向量维度 = 词典大小
+
+    // ---------- 文档频率 df：每个词出现在几篇文档中 ----------
+    for (const auto& kv : termToDim_) {
+        documentFrequency_[kv.first] = index_.getDocumentFrequency(kv.first);
+    }
+
+    // ---------- 第二遍：逐文档生成 TF-IDF 稠密向量 ----------
+    for (const Document& doc : docs) {
+        std::vector<std::string> tokens = tokenizer_.tokenize(doc.content);
+
+        // 1) 词频统计（同一词出现几次）
+        std::unordered_map<std::string, int> tf;
+        for (const std::string& t : tokens) {
+            ++tf[t];
+        }
+
+        // 2) 逐词填充向量：weight = tf * idf
+        //    （词典中绝大多数维度该文档没出现，保持 0，即"稀疏填充稠密向量"）
+        std::vector<double> vec(vocabSize_, 0.0);
+        for (const auto& kv : tf) {
+            const int dim = termToDim_.at(kv.first);           // 词 -> 维度
+            const double idf = computeIdf(documentFrequency_.at(kv.first));
+            vec[dim] = static_cast<double>(kv.second) * idf;
+        }
+        docVectors_[doc.id] = std::move(vec);
+    }
+}
+
+// 检索主流程。
+std::vector<SearchResult> SearchEngine::search(const std::string& query, int topK) const {
+    std::vector<SearchResult> results;
+    // 空查询 / 非正 topK / 空语料：直接返回空结果
+    if (query.empty() || topK <= 0 || vocabSize_ == 0) {
+        return results;
+    }
+
+    // ---------- 1. 查询串分词（与文档同一套预处理） ----------
+    std::vector<std::string> qterms = tokenizer_.tokenize(query);
+    if (qterms.empty()) {          // 例如查询全是停用词
+        return results;
+    }
+
+    // ---------- 2. 查询向量化（与文档向量同一公式） ----------
+    std::unordered_map<std::string, int> qtf;
+    for (const std::string& t : qterms) {
+        ++qtf[t];
+    }
+    std::vector<double> qvec(vocabSize_, 0.0);
+    for (const auto& kv : qtf) {
+        auto dfIt = documentFrequency_.find(kv.first);
+        if (dfIt == documentFrequency_.end()) {
+            continue;              // 词不在词典中：对任何文档权重都是 0
+        }
+        const int dim = termToDim_.at(kv.first);
+        qvec[dim] = static_cast<double>(kv.second) * computeIdf(dfIt->second);
+    }
+
+    // ---------- 3. 倒排索引预筛选候选文档 ----------
+    std::vector<int> candidates = index_.getCandidates(qterms);
+
+    // 查询词条去重（覆盖度统计需要"不同词条数"作分母；
+    // 查询里重复出现的词条不影响覆盖度）。
+    std::vector<std::string> distinctTerms;
+    for (const std::string& t : qterms) {
+        if (std::find(distinctTerms.begin(), distinctTerms.end(), t) ==
+            distinctTerms.end()) {
+            distinctTerms.push_back(t);
+        }
+    }
+
+    // ---------- 4. 对候选文档打分，并用堆选出 Top-K ----------
+    // 堆元素：<相似度, 文档ID>（保留 ID，输出时才能做"是否包含全部查询词"
+    // 的相关判断）。std::greater 使 priority_queue 成为 "小顶堆"，堆始终只
+    // 保留当前最好的 topK 个；来了新分数就入堆，堆超过 K 个就弹出最小的。
+    //
+    // 【查询覆盖度惩罚】得分 = 余弦相似度 × (命中词条数 / 查询词条数)。
+    // 原因：检索是 OR 语义（候选 = 含任一查询词的文档），纯余弦相似度只衡量
+    // "重叠程度"，会让"只含部分查询词、但该词高频"的文档排到"含全部查询词"
+    // 的文档前面（如查"机器学习"，教育文档只有"学/习"却排在 data6 前面）。
+    // 乘上覆盖度比例后，全命中的相关文档权重不变，部分命中的噪声文档按比例
+    // 降权，排序结果与"相关判断"（含全部词条才算符合）保持一致。
+    using HeapNode = std::pair<double, int>;
+    std::priority_queue<HeapNode, std::vector<HeapNode>, std::greater<HeapNode>> heap;
+
+    const double coverageDenominator = static_cast<double>(distinctTerms.size());
+
+    for (int docId : candidates) {
+        double score = computeCosineSimilarity(qvec, docVectors_.at(docId));
+
+        // 统计该文档命中多少个不同的查询词条（候选集保证至少命中 1 个）
+        int covered = 0;
+        for (const std::string& t : distinctTerms) {
+            if (index_.getTermFrequency(docId, t) > 0) {
+                ++covered;
+            }
+        }
+        if (coverageDenominator > 0.0) {
+            score *= static_cast<double>(covered) / coverageDenominator;
+        }
+
+        heap.emplace(score, docId);              // (分数, 文档ID) 入堆
+        if (static_cast<int>(heap.size()) > topK) {
+            heap.pop();                          // 挤出当前"最差"的一个
+        }
+    }
+
+    // ---------- 5. 输出：小顶堆全弹出得到升序，反转后为降序（最佳在前） ----------
+    // 每条结果附带 relevant：该文档是否包含查询的"全部"词条（相关判断）。
+    results.reserve(heap.size());
+    while (!heap.empty()) {
+        const int docId = heap.top().second;
+        const double score = heap.top().first;
+        heap.pop();
+
+        SearchResult r;
+        r.docName = docNameById(docId);
+        r.score = score;
+        r.relevant = containsAllTerms(docId, qterms);
+        results.push_back(std::move(r));
+    }
+    std::reverse(results.begin(), results.end());
+    return results;
+}
+
+// 文档总数 N。
+size_t SearchEngine::documentCount() const {
+    return docs_.size();
+}
+
+// 词典大小（TF-IDF 向量维度）。
+size_t SearchEngine::vocabularySize() const {
+    return vocabSize_;
+}
+
+// 两个等长向量的余弦相似度：cos = 点积 / (模长1 × 模长2)。
+// 算法：一遍循环同时累加点积与两个模长的平方；最后开方相除。
+// 余弦相似度衡量"方向"而非"大小"，对 TF-IDF 权重天然合适：文档越长、词越多，不会因为"量多"而得分高。
+// 零向量（没有任何非零权重）的模长为 0，直接返回 0（无特征可比）。
+double SearchEngine::computeCosineSimilarity(const std::vector<double>& v1, const std::vector<double>& v2) {
+    double dot = 0.0;
+    double norm1 = 0.0;
+    double norm2 = 0.0;
+    for (size_t i = 0; i < v1.size(); ++i) {
+        dot += v1[i] * v2[i];
+        norm1 += v1[i] * v1[i];
+        norm2 += v2[i] * v2[i];
+    }
+    if (norm1 == 0.0 || norm2 == 0.0) {
+        return 0.0;
+    }
+    return dot / (std::sqrt(norm1) * std::sqrt(norm2));
+}
+
+// 经典 IDF 公式：idf = ln(N / df)。
+// 含义：df 越大（词越常见）权重越低，df 越小（词越稀有）权重越高——
+// 这正是"逆文档频率"的核心思想。df 等于 N 时 idf 为 0（所有文档都有的词没有区分度）；df <= 0 是防御分支（词不在任何文档中，权重为 0）。
+double SearchEngine::computeIdf(int df) const {
+    if (df <= 0) {
+        return 0.0;
+    }
+    return std::log(static_cast<double>(totalDocs_) / static_cast<double>(df));
+}
+
+// 通过文档 ID 找文件名：线性扫描 docs_。
+// 文档数少（本项目个位数），线性查找比建索引映射更直白。
+std::string SearchEngine::docNameById(int docId) const {
+    for (const Document& doc : docs_) {
+        if (doc.id == docId) {
+            return doc.name;
+        }
+    }
+    return std::string();      // 找不到返回空串（理论上不会发生）
+}
+
+// 相关度判断：文档是否包含查询的"全部"词条。
+// 用倒排索引查每个词条在该文档的词频（>0 即包含）。
+// 注意：查询词条经过去停用词、去重与否都不影响——停用词已被分词器过滤，
+// 这里只判断剩余的有效词条是否全部出现在文档中。
+bool SearchEngine::containsAllTerms(int docId, const std::vector<std::string>& terms) const {
+    for (const std::string& t : terms) {
+        if (index_.getTermFrequency(docId, t) <= 0) {
+            return false;
+        }
+    }
+    return true;
+}

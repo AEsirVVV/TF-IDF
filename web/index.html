@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TF-IDF 智能检索引擎</title>
+<!-- Chart.js（CDN，需求文档技术栈约定） -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f0f4f8;
+    color: #1f2d3d;
+  }
+  /* 左右两栏布局：左侧文档库 + 右侧检索主界面 */
+  .layout {
+    display: flex; gap: 20px; align-items: flex-start;
+    max-width: 1160px; margin: 40px auto; padding: 0 20px;
+  }
+  .container { flex: 1; min-width: 0; }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 6px; }
+  .subtitle { text-align: center; color: #7a8a9a; font-size: 14px; margin-bottom: 24px; }
+
+  /* 左侧文档库 */
+  .sidebar {
+    width: 270px; flex-shrink: 0;
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(31,45,61,.08);
+    padding: 16px; display: flex; flex-direction: column;
+    position: sticky; top: 20px;
+    max-height: calc(100vh - 40px);
+  }
+  .sidebar-title { font-size: 16px; color: #3a4a5c; margin-bottom: 12px; }
+  #doc-filter {
+    width: 100%; padding: 8px 10px; margin-bottom: 10px;
+    border: 1px solid #c8d3de; border-radius: 6px; outline: none;
+    font-size: 13px;
+  }
+  #doc-filter:focus { border-color: #4a90d9; }
+  .doc-list { list-style: none; overflow-y: auto; flex: 1; }
+  .doc-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: #2c3e50;
+  }
+  .doc-item:hover { background: #eef4fb; }
+  .doc-item .size { color: #9aa8b8; font-size: 12px; }
+  .doc-empty { color: #9aa8b8; font-size: 13px; text-align: center; padding: 12px 0; }
+
+  /* 搜索框 */
+  .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
+  .search-box input {
+    flex: 1; padding: 12px 16px; font-size: 15px;
+    border: 2px solid #c8d3de; border-radius: 8px; outline: none;
+    transition: border-color .2s;
+  }
+  .search-box input:focus { border-color: #4a90d9; }
+  .search-box button {
+    padding: 12px 28px; font-size: 15px; cursor: pointer;
+    background: #4a90d9; color: #fff; border: none; border-radius: 8px;
+    transition: background .2s;
+  }
+  .search-box button:hover { background: #3a7bc0; }
+  .search-box button:disabled { background: #9db8d4; cursor: not-allowed; }
+
+  /* 提示信息 */
+  .message { text-align: center; color: #5a6b7c; font-size: 14px; margin: 12px 0; min-height: 20px; }
+  .message.error { color: #d9534f; }
+
+  /* 图表与结果 */
+  .card {
+    background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(31,45,61,.08);
+    padding: 20px; margin-bottom: 20px;
+  }
+  .card h2 { font-size: 16px; margin-bottom: 12px; color: #3a4a5c; }
+  #chart-box { position: relative; height: 320px; }
+  #results { list-style: none; }
+  #results li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; border-bottom: 1px solid #eef2f6;
+  }
+  #results li:last-child { border-bottom: none; }
+  #results .rank {
+    width: 28px; height: 28px; line-height: 28px; text-align: center;
+    background: #e8f1fb; color: #2c6cb0; border-radius: 50%; font-weight: bold;
+    margin-right: 12px; flex-shrink: 0;
+  }
+  #results .doc { flex: 1; font-weight: 600; }
+  #results .score { color: #2c6cb0; font-weight: bold; }
+
+  /* 前三篇相关度判断 + 每行相关性徽标 */
+  .judge {
+    margin: 4px 0 12px; padding: 8px 12px; border-radius: 6px;
+    font-size: 14px; font-weight: 600; text-align: center;
+    background: #f0f4f8; color: #5a6b7c;
+  }
+  .judge.ok { background: #e8f5e9; color: #28a745; }
+  .judge.warn { background: #fff4e5; color: #e8890c; }
+  .judge.bad { background: #fdecea; color: #d9534f; }
+  .badge {
+    margin-left: 10px; padding: 2px 8px; border-radius: 10px;
+    font-size: 12px; font-weight: 600; flex-shrink: 0;
+  }
+  .badge.ok { background: #e8f5e9; color: #28a745; }
+  .badge.bad { background: #fdecea; color: #d9534f; }
+
+  /* 查看原文按钮 */
+  .view-btn {
+    margin-left: 12px; padding: 4px 12px; flex-shrink: 0;
+    border: 1px solid #4a90d9; background: #e8f1fb; color: #2c6cb0;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+    transition: background .2s;
+  }
+  .view-btn:hover { background: #d3e6fa; }
+
+  /* 文档原文弹窗 */
+  .modal {
+    position: fixed; inset: 0; background: rgba(31,45,61,.45); z-index: 100;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-box {
+    background: #fff; width: min(720px, 92vw); max-height: 82vh;
+    border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 6px 24px rgba(0,0,0,.22);
+  }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; border-bottom: 1px solid #eef2f6;
+    font-weight: 600; color: #3a4a5c;
+  }
+  .modal-close {
+    border: none; background: none; font-size: 18px; cursor: pointer;
+    color: #7a8a9a; line-height: 1;
+  }
+  .modal-close:hover { color: #1f2d3d; }
+  #doc-content {
+    margin: 0; padding: 18px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+    line-height: 1.8; font-size: 14px;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- 左侧：文档库（浏览/筛选全部文档，点击查看原文） -->
+  <aside class="sidebar">
+    <h2 class="sidebar-title">📚 文档库</h2>
+    <input id="doc-filter" type="text" placeholder="按文件名筛选，如 data10" autocomplete="off">
+    <ul id="doc-list" class="doc-list"></ul>
+  </aside>
+
+  <!-- 右侧：检索主界面 -->
+  <div class="container">
+  <h1>🔍 TF-IDF 智能检索引擎</h1>
+  <p class="subtitle">纯 C++ 后端 · 余弦相似度排序 · 返回 Top-5 相关文档</p>
+
+  <!-- 搜索输入框 + 按钮（FR7：输入框、按钮） -->
+  <div class="search-box">
+    <input id="query" type="text" placeholder="输入关键词或句子，例如：机器学习 / 太空 / 足球 / 美食 / economy"
+           autocomplete="off">
+    <button id="btn">搜索</button>
+  </div>
+
+  <div id="message" class="message"></div>
+
+  <!-- 柱状图（FR7：Chart.js，横轴=文档名，纵轴=相似度百分比） -->
+  <div id="chart-card" class="card hidden">
+    <h2>相似度分布</h2>
+    <div id="chart-box"><canvas id="chart"></canvas></div>
+  </div>
+
+  <!-- 结果列表 -->
+  <div id="result-card" class="card hidden">
+    <h2>检索结果</h2>
+    <div id="judge" class="judge"></div>
+    <ul id="results"></ul>
+  </div>
+  </div>
+</div>
+
+<!-- 文档原文弹窗：点击结果里的"查看原文"按钮打开 -->
+<div id="doc-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="doc-title">文档内容</span>
+      <button id="doc-close" class="modal-close" title="关闭">✕</button>
+    </div>
+    <pre id="doc-content"></pre>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const input = document.getElementById("query");
+  const btn = document.getElementById("btn");
+  const message = document.getElementById("message");
+  const chartCard = document.getElementById("chart-card");
+  const resultCard = document.getElementById("result-card");
+  const resultsList = document.getElementById("results");
+  const canvas = document.getElementById("chart");
+  const docModal = document.getElementById("doc-modal");
+  const docTitle = document.getElementById("doc-title");
+  const docContent = document.getElementById("doc-content");
+  const docList = document.getElementById("doc-list");
+  const docFilter = document.getElementById("doc-filter");
+  let allDocs = [];   // 全部文档（名称 + 字节数），来自 /docs 接口，供筛选
+  const judge = document.getElementById("judge");
+
+  let chart = null;   // Chart.js 实例（只创建一次，之后 update 数据）
+
+  // 展示提示信息（normal / error 两种样式）
+  function showMessage(text, isError) {
+    message.textContent = text;
+    message.className = "message" + (isError ? " error" : "");
+  }
+
+  // 清空旧的展示区
+  function clearDisplay() {
+    chartCard.classList.add("hidden");
+    resultCard.classList.add("hidden");
+    resultsList.innerHTML = "";
+    judge.textContent = "";
+    judge.className = "judge";
+  }
+
+  // 核心逻辑：调用后端 /search 接口并渲染结果（FR7：fetch API）
+  async function doSearch() {
+    const q = input.value.trim();
+    if (q === "") {
+      showMessage("请输入查询内容", true);
+      return;
+    }
+
+    btn.disabled = true;
+    clearDisplay();
+    showMessage("正在搜索 \"" + q + "\" ...");
+
+    try {
+      // 异步调用后端接口（同源，无跨域问题）
+      const resp = await fetch("/search?q=" + encodeURIComponent(q));
+      if (!resp.ok) {
+        throw new Error("HTTP " + resp.status);
+      }
+      const data = await resp.json();
+      render(data);
+    } catch (e) {
+      showMessage("请求出错：" + e.message + "（请确认后端服务已启动）", true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // 渲染：无结果给友好提示；有结果更新柱状图 + 结果列表 + 前三篇判断
+  function render(results) {
+    if (!results || results.length === 0) {
+      judge.textContent = "";
+      judge.className = "judge";
+      showMessage("没有找到相关文档，换个关键词试试吧");
+      return;
+    }
+
+    showMessage("共找到 " + results.length + " 个相关文档");
+    renderChart(results);
+    renderList(results);
+    showJudge(results);   // 前三篇相关度判断 + 正确率
+  }
+
+  // 查看文档原文：调用后端 /doc 接口，把全文显示在弹窗里
+  async function viewDoc(name) {
+    try {
+      const resp = await fetch("/doc?name=" + encodeURIComponent(name));
+      if (!resp.ok) {
+        throw new Error("HTTP " + resp.status);
+      }
+      const data = await resp.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      // 用 textContent 注入，避免把文档内容当 HTML 解析（防注入）
+      docTitle.textContent = data.doc_name;
+      docContent.textContent = data.content;
+      docModal.classList.remove("hidden");
+    } catch (e) {
+      showMessage("查看文档失败：" + e.message, true);
+    }
+  }
+
+  // 关闭文档弹窗
+  function closeDocModal() {
+    docModal.classList.add("hidden");
+  }
+
+  // 左侧文档库：从 /docs 接口加载全部文档
+  async function loadDocList() {
+    try {
+      const resp = await fetch("/docs");
+      if (!resp.ok) {
+        throw new Error("HTTP " + resp.status);
+      }
+      allDocs = await resp.json();
+      renderDocList(docFilter.value);
+    } catch (e) {
+      docList.innerHTML = "";
+      const li = document.createElement("li");
+      li.className = "doc-empty";
+      li.textContent = "文档库加载失败：" + e.message;
+      docList.appendChild(li);
+    }
+  }
+
+  // 渲染文档列表：按文件名（不区分大小写）过滤；点击任意文档查看原文
+  function renderDocList(filter) {
+    docList.innerHTML = "";
+    const kw = filter.trim().toLowerCase();
+    let count = 0;
+    allDocs.forEach(function (d) {
+      if (kw !== "" && d.doc_name.toLowerCase().indexOf(kw) === -1) {
+        return;
+      }
+      count++;
+      const li = document.createElement("li");
+      li.className = "doc-item";
+
+      const name = document.createElement("span");
+      name.textContent = d.doc_name;
+
+      const size = document.createElement("span");
+      size.className = "size";
+      size.textContent = d.size + " B";
+
+      li.appendChild(name);
+      li.appendChild(size);
+      li.addEventListener("click", function () {
+        viewDoc(d.doc_name);      // 复用同一个"查看原文"弹窗
+      });
+      docList.appendChild(li);
+    });
+
+    if (count === 0) {
+      const li = document.createElement("li");
+      li.className = "doc-empty";
+      li.textContent = "没有匹配的文档";
+      docList.appendChild(li);
+    }
+  }
+
+  // 柱状图：横轴=文档名，纵轴=相似度百分比（需求 FR7）
+  function renderChart(results) {
+    const labels = results.map(function (r) { return r.doc_name; });
+    const scores = results.map(function (r) {
+      return Math.round(r.score * 10000) / 100;   // 0.3691 -> 36.91
+    });
+
+    if (!chart) {
+      chart = new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: "相似度 (%)",
+            data: scores,
+            backgroundColor: "rgba(74, 144, 217, 0.7)",
+            borderColor: "rgba(74, 144, 217, 1)",
+            borderWidth: 1,
+            maxBarThickness: 60
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function (ctx) { return "相似度: " + ctx.parsed.y.toFixed(2) + "%"; }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              suggestedMax: 100,
+              title: { display: true, text: "相似度 (%)" }
+            },
+            x: { title: { display: true, text: "文档" } }
+          }
+        }
+      });
+    } else {
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = scores;
+      chart.update();
+    }
+    chartCard.classList.remove("hidden");
+  }
+
+  // 结果列表：排名 + 文档名 + 相似度百分比
+  function renderList(results) {
+    resultsList.innerHTML = "";
+    results.forEach(function (r, i) {
+      const li = document.createElement("li");
+
+      const rank = document.createElement("span");
+      rank.className = "rank";
+      rank.textContent = String(i + 1);
+
+      const doc = document.createElement("span");
+      doc.className = "doc";
+      doc.textContent = r.doc_name;
+
+      const score = document.createElement("span");
+      score.className = "score";
+      score.textContent = (r.score * 100).toFixed(2) + "%";
+
+      // 相关性徽标：该文档是否包含查询的全部词条（后端 /search 已给出）
+      const badge = document.createElement("span");
+      badge.className = "badge " + (r.relevant ? "ok" : "bad");
+      badge.textContent = r.relevant ? "✓ 相关" : "✗ 不相关";
+
+      // "查看原文"按钮：点击后从 /doc 接口取全文并弹窗显示
+      const viewBtn = document.createElement("button");
+      viewBtn.className = "view-btn";
+      viewBtn.textContent = "查看原文";
+      viewBtn.addEventListener("click", function () {
+        viewDoc(r.doc_name);
+      });
+
+      li.appendChild(rank);
+      li.appendChild(doc);
+      li.appendChild(score);
+      li.appendChild(badge);
+      li.appendChild(viewBtn);
+      resultsList.appendChild(li);
+    });
+    resultCard.classList.remove("hidden");
+  }
+
+  // 事件绑定：按钮点击 + 回车键（FR7：监听按钮点击）
+  btn.addEventListener("click", doSearch);
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      doSearch();
+    }
+  });
+
+  // 弹窗关闭：点 ✕、点遮罩、按 Esc
+  document.getElementById("doc-close").addEventListener("click", closeDocModal);
+  docModal.addEventListener("click", function (e) {
+    if (e.target === docModal) {   // 点到遮罩本身（而非弹窗内容）才关闭
+      closeDocModal();
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !docModal.classList.contains("hidden")) {
+      closeDocModal();
+    }
+  });
+
+  // 文档库筛选：输入即过滤
+  docFilter.addEventListener("input", function () {
+    renderDocList(docFilter.value);
+  });
+
+  // 前三篇相关度判断：统计前 3 条里 relevant=true 的数量并给出正确率
+  function showJudge(results) {
+    const top3 = results.slice(0, 3);
+    const hits = top3.filter(function (r) { return r.relevant; }).length;
+    const total = top3.length;
+    const pct = total > 0 ? Math.round(hits / total * 1000) / 10 : 0;
+    judge.textContent = "前三篇相关度判断：" + hits + "/" + total +
+      " 篇符合，正确率 " + pct + "%";
+    judge.className = "judge " + (hits === total ? "ok" : (hits > 0 ? "warn" : "bad"));
+  }
+
+  // 页面加载后：加载文档库 + 自动聚焦输入框
+  loadDocList();
+  input.focus();
+})();
+</script>
+</body>
+</html>

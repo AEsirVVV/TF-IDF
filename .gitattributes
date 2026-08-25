@@ -1,0 +1,17 @@
+# 统一行尾：源码/文档/脚本一律 LF（本项目源文件均为 LF，避免
+# Windows 上 Git 自动转换 CRLF 造成大量无意义 diff）
+* text=auto
+
+*.cpp text eol=lf
+*.h text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.ps1 text eol=crlf
+
+# 二进制文件不做行尾处理
+*.docx binary
+*.exe binary
+*.dll binary
