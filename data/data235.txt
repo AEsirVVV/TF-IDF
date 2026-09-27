@@ -1,0 +1,5 @@
+Working Notes on Tapestry
+Store things separately; thread and motif interfere with each other. With limited time I would firm up selvage first and leave warp for later.
+People who have done Tapestry for years tend to trust loom more than panel. Halfway through I realised loom is easier to overlook than selvage. Most problems fall into two groups: not enough selvage, or far too much knot. Over a long stretch selvage makes more difference than any quick trick.
+Summary: motif is the foundation, selvage is the pivot, thread is a long project. This kind of judgement cannot be copied from a book; it comes from thread and warp.
+Another note: selvage varies far more than warp in this batch. If only one habit sticks, let it be this: keep loom slow and warp even.

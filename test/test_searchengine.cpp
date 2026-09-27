@@ -6,13 +6,15 @@
 //         #include "../src/SearchEngine.cpp"
 //
 // 演示内容：
-//   1. 读入 data/data1.txt ~ data6.txt 构成 6 篇文档语料；
+//   1. 用 FileReader 读入 data/ 下全部文档构成语料（当前 500 篇）；
 //   2. SearchEngine::build 建索引 + TF-IDF 向量化；
 //   3. 多组查询验证：英文单词、多词查询、中文查询、停用词查询、
 //      空查询、Top-K 截断、无匹配词。
 
+#include "FileReader.h"
 #include "SearchEngine.h"
 
+#include "../src/FileReader.cpp"
 #include "../src/InvertedIndex.cpp"
 #include "../src/SearchEngine.cpp"
 #include "../src/ThreadPool.cpp"   // SearchEngine::build 使用线程池并行分词
@@ -26,24 +28,6 @@
 #include <sstream>     // std::ostringstream
 
 namespace {
-
-// 读取文件全部内容；打不开返回 false。
-bool readFile(const std::string& path, std::string& out) {
-    std::ifstream in(path);
-    if (!in.is_open()) return false;
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    out = buf.str();
-    return true;
-}
-
-// 尝试读取 data/dataN.txt（工作目录不固定，两个候选路径都试一下）。
-bool readDataDoc(int n, std::string& out) {
-    std::ostringstream p1, p2;
-    p1 << "data/data" << n << ".txt";
-    p2 << "TF-IDF/data/data" << n << ".txt";
-    return readFile(p1.str(), out) || readFile(p2.str(), out);
-}
 
 // 打印一次检索结果
 void printResults(const std::string& query, const std::vector<SearchResult>& results) {
@@ -68,17 +52,11 @@ int main() {
 
     std::cout << "===== SearchEngine 演示（TF-IDF + 余弦相似度 + Top-K）=====\n\n";
 
-    // ---------- 1. 读入 19 篇文档 ----------
-    std::vector<Document> docs;
-    for (int i = 1; i <= 19; ++i) {
-        std::string text;
-        if (!readDataDoc(i, text)) {
-            std::cout << "读取 data/data" << i << ".txt 失败（请确认工作目录）\n";
-            continue;
-        }
-        std::ostringstream name;
-        name << "data" << i << ".txt";
-        docs.push_back({i - 1, name.str(), text});
+    // ---------- 1. 读入 data/ 下全部文档（当前 500 篇） ----------
+    FileReader reader;
+    std::vector<Document> docs = reader.readAllDocuments("data");
+    if (docs.empty()) {
+        docs = reader.readAllDocuments("TF-IDF/data");   // 兜底路径
     }
     std::cout << "已读入 " << docs.size() << " 篇文档\n\n";
 
@@ -89,7 +67,9 @@ int main() {
     }
     engine.build(docs);
     std::cout << "文档总数 N = " << engine.documentCount()
-              << "，词典大小（向量维度）= " << engine.vocabularySize() << "\n\n";
+              << "，词典大小（向量维度）= " << engine.vocabularySize()
+              << "，构建线程数 = " << engine.threadCount()
+              << "（并行阈值 " << engine.parallelThreshold() << "）\n\n";
 
     // ---------- 3. 各组查询 ----------
     // 注意：中文查询按单字切分（"人工智能"→ 工/智），因此用"不存在的词xyz"
@@ -99,7 +79,7 @@ int main() {
     printResults("basketball", engine.search("basketball", 5));
     printResults("football", engine.search("football", 5));      // 英文足球
     printResults("足球", engine.search("足球", 5));              // 中文足球
-    printResults("人工智能", engine.search("人工智能", 5));      // 中文 AI（3 篇相关）
+    printResults("人工智能", engine.search("人工智能", 5));      // 中文 AI（多篇相关，按相似度排序）
     printResults("健康", engine.search("健康", 5));              // 中文健康
     printResults("health", engine.search("health", 5));          // 英文健康
     printResults("climate change", engine.search("climate change", 3));  // Top-K=3

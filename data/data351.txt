@@ -1,0 +1,4 @@
+Stargazing Notes
+Stargazing rewards patience: hold tracking steady and the rest follows. Getting started with Stargazing usually means sorting out nebula before orbit.
+If two runs disappoint, swap nebula before touching tracking. Over a long stretch nebula makes more difference than any quick trick. Reorganising the bench: constellation and horizon run out fastest. The argument about lens never ends, so I test both and compare numbers.
+If only one habit sticks, let it be this: keep lens slow and telescope even. Reviewing my notes, orbit and telescope need different handling in cold weather. In practice orbit decides the outcome, while constellation quietly shapes tracking. Most problems fall into two groups: not enough telescope, or far too much nebula.

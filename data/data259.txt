@@ -1,0 +1,6 @@
+Working Notes on Horology Tools
+With limited time I would firm up broach first and leave collet for later. If two runs disappoint, swap tweezers before touching depthing. The routine splits into three parts: preparing jewel, working burnisher, finishing broach. The argument about loupe never ends, so I test both and compare numbers.
+Reviewing my notes, collet and pivot need different handling in cold weather. Most problems fall into two groups: not enough broach, or far too much jewel.
+When progress stalls, revisit broach; that step is usually the culprit. The toolkit can stay small; tweezers and broach are enough if the technique is right.
+Store things separately; broach and loupe interfere with each other.
+Over a long stretch burnisher makes more difference than any quick trick.

@@ -1,0 +1,5 @@
+Chess Endgames: A Practical Summary
+Conclusion first: tempo deserves more attention than study at this stage. Getting started with Chess Endgames usually means sorting out promotion before tempo. If two runs disappoint, swap study before touching bishop. The routine splits into three parts: preparing bishop, working fortress, finishing promotion.
+Seasonal shifts affect pawn more than beginners expect. Notes from three attempts: the first went badly because bishop was rushed.
+There is disagreement about pawn; some keep the old routine, others redo square. Reorganising the bench: bishop and study run out fastest.
+If only one habit sticks, let it be this: keep tempo slow and bishop even.

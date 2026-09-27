@@ -45,8 +45,18 @@ public:
     size_t vocabularySize() const;
 
     // 构建时使用的线程数（线程池大小）；build() 之前或语料为空时为 0。
+    // 返回 1 表示本次构建走的是串行分支（语料未达到并行阈值）。
     // 供测试/基准程序观察并行度。
     size_t threadCount() const;
+
+    // 设置"并行阈值"：文档数 < threshold 时串行分词，>= threshold 才启用线程池。
+    // 默认 256（依据：实测并行固定开销约 1.3ms，交叉点约 100~200 篇）。
+    // 存在的意义是让并行"按语料规模"生效，而不是无条件并行；
+    // 测试程序可传 0 强制并行、传 SIZE_MAX 强制串行，从而对比两条路径的结果。
+    void setParallelThreshold(size_t threshold);
+
+    // 当前并行阈值（默认 256）。
+    size_t parallelThreshold() const;
 
 private:
     // 计算两个等长 TF-IDF 向量的余弦相似度。
@@ -71,6 +81,7 @@ private:
     int totalDocs_ = 0;        // 文档总数 N
     size_t vocabSize_ = 0;     // 词典大小（TF-IDF 向量维度）
     size_t poolSize_ = 0;      // 构建时线程池大小（并行分词用）
+    size_t parallelThreshold_ = 256;   // 并行阈值：文档数达到该值才使用线程池
 
     // 词典映射：词 -> 向量维度下标。
     std::unordered_map<std::string, int> termToDim_;

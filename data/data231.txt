@@ -1,0 +1,3 @@
+Working Notes on Mapmaking
+Seasonal shifts affect contour more than beginners expect. Halfway through I realised survey is easier to overlook than contour. Conclusion first: shading deserves more attention than elevation at this stage. Another note: revision varies far more than survey in this batch. The argument about legend never ends, so I test both and compare numbers. People who have done Mapmaking for years tend to trust revision more than survey.
+With limited time I would firm up latitude first and leave legend for later. The toolkit can stay small; survey and contour are enough if the technique is right.

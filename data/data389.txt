@@ -1,0 +1,4 @@
+Notes on Weather Watching
+Seasonal shifts affect barometer more than beginners expect. Another note: front varies far more than barometer in this batch. In practice barometer decides the outcome, while cumulus quietly shapes isobar.
+Notes from three attempts: the first went badly because front was rushed. Halfway through I realised barometer is easier to overlook than thermometer. The routine splits into three parts: preparing forecast, working gust, finishing thermometer.
+The argument about isobar never ends, so I test both and compare numbers. Getting started with Weather Watching usually means sorting out barometer before front.

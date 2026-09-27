@@ -94,9 +94,10 @@ int main() {
     // ---------- 5. 中英混合 / 标点 / 数字 ----------
     printTokens("中英混合        ", tok.tokenize("I love C++ and 机器学习 in 2026!"));
 
-    // ---------- 6. 真实样例文档 data/data1.txt ~ data19.txt ----------
-    std::cout << "\n----- data/ 样例文档 -----\n";
-    for (int i = 1; i <= 19; ++i) {
+    // ---------- 6. 真实样例文档（原始 19 篇 + 扩充后的新语料各抽几篇） ----------
+    std::cout << "\n----- data/ 样例文档（共 500 篇，这里抽样 9 篇）-----\n";
+    const int kSamples[] = {1, 5, 10, 19, 20, 100, 250, 400, 500};
+    for (int i : kSamples) {
         // 工作目录不固定，两个候选路径都试一下
         std::ostringstream p1, p2;
         p1 << "data/data" << i << ".txt";

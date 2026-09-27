@@ -1,0 +1,3 @@
+Field Notes: Mapmaking
+In practice grid decides the outcome, while latitude quietly shapes contour. The argument about shading never ends, so I test both and compare numbers.
+Notes from three attempts: the first went badly because latitude was rushed. Beginners overlook compass and then struggle with survey again and again. Getting started with Mapmaking usually means sorting out elevation before revision. Mapmaking rewards patience: hold survey steady and the rest follows.

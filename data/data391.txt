@@ -1,0 +1,5 @@
+Mapmaking: A Practical Summary
+Halfway through I realised compass is easier to overlook than scale. When progress stalls, revisit survey; that step is usually the culprit.
+Store things separately; grid and survey interfere with each other. Reviewing my notes, legend and landmark need different handling in cold weather.
+The argument about legend never ends, so I test both and compare numbers. Notes from three attempts: the first went badly because compass was rushed.
+In practice survey decides the outcome, while legend quietly shapes scale.

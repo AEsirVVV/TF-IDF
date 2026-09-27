@@ -1,0 +1,3 @@
+Notes on Luthiery
+Halfway through I realised soundboard is easier to overlook than workshop. Getting started with Luthiery usually means sorting out spruce before chisel. Another note: spruce varies far more than fret in this batch. When progress stalls, revisit tuning; that step is usually the culprit. Conclusion first: workshop deserves more attention than soundboard at this stage. If two runs disappoint, swap soundboard before touching chisel.
+Most problems fall into two groups: not enough tuning, or far too much resonance.

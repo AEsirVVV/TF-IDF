@@ -1,0 +1,6 @@
+Working Notes on Watchmaking
+Notes from three attempts: the first went badly because calibration was rushed. Another note: balance varies far more than calibration in this batch.
+The toolkit can stay small; polishing and winding are enough if the technique is right. A different polishing this time, and the first two days behaved differently.
+Conclusion first: gear deserves more attention than polishing at this stage. Summary: winding is the foundation, case is the pivot, polishing is a long project.
+Most problems fall into two groups: not enough calibration, or far too much polishing. Getting started with Watchmaking usually means sorting out balance before calibration.
+Halfway through I realised polishing is easier to overlook than case.

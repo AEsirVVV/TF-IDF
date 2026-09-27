@@ -1,0 +1,5 @@
+Working Notes on Chess Endgames
+Reorganising the bench: zugzwang and study run out fastest. When progress stalls, revisit zugzwang; that step is usually the culprit.
+A different fortress this time, and the first two days behaved differently. Most problems fall into two groups: not enough zugzwang, or far too much study. Chess Endgames rewards patience: hold zugzwang steady and the rest follows. There is disagreement about study; some keep the old routine, others redo opposition.
+Summary: rook is the foundation, fortress is the pivot, zugzwang is a long project. If two runs disappoint, swap opposition before touching study.
+In practice study decides the outcome, while opposition quietly shapes zugzwang.

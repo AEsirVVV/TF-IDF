@@ -1,0 +1,5 @@
+Mapmaking: A Practical Summary
+Another note: legend varies far more than compass in this batch. Notes from three attempts: the first went badly because survey was rushed. A different landmark this time, and the first two days behaved differently.
+The argument about legend never ends, so I test both and compare numbers.
+The toolkit can stay small; grid and survey are enough if the technique is right. Over a long stretch elevation makes more difference than any quick trick.
+Getting started with Mapmaking usually means sorting out legend before grid.

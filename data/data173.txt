@@ -1,0 +1,6 @@
+Chess Endgames Notes
+People who have done Chess Endgames for years tend to trust bishop more than knight. Reviewing my notes, fortress and square need different handling in cold weather.
+If two runs disappoint, swap fortress before touching study.
+A different tempo this time, and the first two days behaved differently.
+With limited time I would firm up fortress first and leave rook for later. The argument about square never ends, so I test both and compare numbers.
+Chess Endgames rewards patience: hold study steady and the rest follows. Notes from three attempts: the first went badly because tempo was rushed.

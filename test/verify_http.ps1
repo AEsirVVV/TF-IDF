@@ -5,9 +5,10 @@
 #   2. 再运行本脚本：pwsh test\verify_http.ps1
 #      （Windows PowerShell 5.1 亦可：powershell -File test\verify_http.ps1）
 #
-# 验证内容：
-#   - 金标准：20 个主题明确的查询，断言"预期文档必须排第一名"；
-#   - 边界：纯停用词 / 空查询 / 不存在的词 → 必须返回空数组；
+# 验证内容（共 45 条，与 test_verify.cpp 的断言表保持一致）：
+#   - 原始题材金标准：20 个主题明确的查询，断言"预期文档必须排第一名"；
+#   - 扩充语料新题材金标准：20 个新题材查询（80 个新题材中抽样），同样断言 top-1；
+#   - 边界：纯停用词 / 空查询 / 不存在的词 / 语料中未出现的英文实词 → 必须返回空数组；
 #   - 通用不变量：分数在 [0,1]、结果按相似度降序、数量 ≤ 5。
 #
 # 退出码：0 = 全部通过；1 = 存在失败（可在 CI/脚本中直接使用）。
@@ -18,6 +19,7 @@ param(
 
 # 金标准测试表：q = 查询词，top = 预期第一名；empty = true 表示必须无结果
 $tests = @(
+    # —— 原始 19 篇语料的 13 个题材 ——
     @{ q = "basketball";       top = "data3.txt"  },
     @{ q = "football";         top = "data9.txt"  },
     @{ q = "health";           top = "data7.txt"  },
@@ -38,9 +40,33 @@ $tests = @(
     @{ q = "美食";             top = "data18.txt" },
     @{ q = "教育";             top = "data16.txt" },
     @{ q = "编程";             top = "data10.txt" },
+    # —— 扩充语料（data20 ~ data500）的新题材 ——
+    @{ q = "茶文化";           top = "data100.txt" },
+    @{ q = "围棋";             top = "data344.txt" },
+    @{ q = "咖啡";             top = "data190.txt" },
+    @{ q = "鸟类";             top = "data124.txt" },
+    @{ q = "钓鱼";             top = "data76.txt"  },
+    @{ q = "香料";             top = "data80.txt"  },
+    @{ q = "灯笼";             top = "data254.txt" },
+    @{ q = "漆艺";             top = "data258.txt" },
+    @{ q = "早市";             top = "data242.txt" },
+    @{ q = "旧书";             top = "data486.txt" },
+    @{ q = "瑜伽";             top = "data390.txt" },
+    @{ q = "山脉";             top = "data38.txt"  },
+    @{ q = "starter";          top = "data421.txt" },
+    @{ q = "espresso";         top = "data103.txt" },
+    @{ q = "barometer";        top = "data389.txt" },
+    @{ q = "quoin";            top = "data47.txt"  },
+    @{ q = "escapement";       top = "data99.txt"  },
+    @{ q = "joinery";          top = "data347.txt" },
+    @{ q = "slate";            top = "data485.txt" },
+    @{ q = "willow";           top = "data491.txt" },
+    # —— 边界情况 ——
     @{ q = "the";              empty = $true      },
     @{ q = "";                 empty = $true      },
-    @{ q = "zzzqqq";           empty = $true      }
+    @{ q = "zzzqqq";           empty = $true      },
+    @{ q = "apiary";           empty = $true      },   # 语料中确实未出现的英文实词
+    @{ q = "kayak";            empty = $true      }
 )
 
 $pass = 0

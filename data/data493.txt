@@ -1,0 +1,5 @@
+Working Notes on Chess Endgames
+Reorganising the bench: tempo and opposition run out fastest. Over a long stretch fortress makes more difference than any quick trick.
+Summary: opposition is the foundation, tempo is the pivot, fortress is a long project.
+Another note: promotion varies far more than fortress in this batch. People who have done Chess Endgames for years tend to trust bishop more than opposition. When progress stalls, revisit tempo; that step is usually the culprit.
+If two runs disappoint, swap tempo before touching promotion. Getting started with Chess Endgames usually means sorting out opposition before promotion.

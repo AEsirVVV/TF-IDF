@@ -9,12 +9,15 @@
 //   6. 堆内元素倒序输出 → 相似度从高到低的结果列表。
 
 #include "SearchEngine.h"
-#include "ThreadPool.h"   // 线程池：build() 并行分词
+#include "ThreadPool.h"   // 线程池：build() 的三个阶段都复用它
 
 #include <algorithm> 
 #include <cmath>     
+#include <functional> // std::function（把"分片循环体"传给通用并行器）
 #include <future>    // std::future（等待并行分片完成）
+#include <memory>    // std::unique_ptr（线程池只在并行分支创建）
 #include <queue>     
+#include <thread>    // std::thread::hardware_concurrency
 #include <utility>   
 
 // 构造：初始化内部分词器并加载停用词表。
@@ -28,18 +31,22 @@ bool SearchEngine::loadStopwords(const std::string& stopwordsFilePath) {
 
 // 构建索引与 TF-IDF 向量集。
 //
-// 算法（并行分词 + 两遍合并）：
-//   0. 【多线程】把文档按块分给线程池并行分词，每个线程只写自己的局部结果
-//      （tokenized[i]），互不加锁 —— 这就是"无锁并行"的做法；
-//   1. 主线程单线程合并：写倒排索引 + 收集词典（词 -> 维度）；
-//   2. 文档频率 df；
-//   3. 逐文档生成 TF-IDF 稠密向量（复用第 0 步已分好的词条，避免重复分词）。
+// 算法（一个线程池贯穿三个阶段）：
+//   0. 【并行】按块并行分词，每个线程只写自己的分片 tokenized[i]；
+//   1. 【串行】合并共享结构：写倒排索引 + 收集词典（词 -> 维度）；
+//   2. 【并行】统计文档频率 df（按词典分块，各线程写自己的局部结果）；
+//   3. 【并行】逐文档生成 TF-IDF 稠密向量（各线程只写自己那段 vectors[i]）。
 //
-// 为什么这样并行：
-//   - 分词是纯计算、文档之间完全独立，是天然可并行点（CPU 密集）；
-//   - 共享结构（倒排索引、词典）的写入放在单线程合并阶段，
+// 为什么这样并行（每一处都由实测数据决定）：
+//   - 这三步都是"每篇文档/每个词条独立计算"，天然可并行；
+//   - 需要写共享结构的两处（倒排索引、词典维度分配）留在单线程阶段，
 //     避免"多线程写同一份 map 再加锁"的锁竞争；
-//   - tokenizer_.tokenize 是 const 方法、只读停用词表，多线程同时调用安全。
+//   - 线程池只创建一次、复用三个阶段：线程创建 + join 有固定开销
+//     （本机约 1.3ms），开三次等于白付三笔；
+//   - tokenizer_.tokenize 与 computeIdf 都是 const/只读，多线程调用安全；
+//   - 各线程只写"属于自己的下标"（tokenized[i] / vectors[i] /
+//     dfOfTerm[j]），不需要任何锁 —— 这是无锁并行的前提：
+//     共享数据只读，私有数据各写各的。
 void SearchEngine::build(const std::vector<Document>& docs) {
     // 清空旧状态，使 build 可重复调用（重建索引）
     docs_.clear();
@@ -59,52 +66,66 @@ void SearchEngine::build(const std::vector<Document>& docs) {
 
     const size_t docCount = docs.size();
 
-    // ---------- 第 0 步：分词（小语料串行 / 大语料并行，按阈值选择） ----------
+    // ---------- 准备：按阈值决定本次构建是串行还是并行 ----------
     // 并行不是越多越好：线程创建 + join + 调度有固定开销（本机实测约 1.3 ms，
-    // 与机器和线程数有关），语料太小时这个开销远大于分词本身。实测数据：
+    // 与机器和线程数有关），语料太小时这个开销远大于并行省下的时间。实测：
     //   19 篇   串行 0.22 ms / 并行 1.5 ms  → 0.15x（纯亏）
     //   190 篇  串行 2.0  ms / 并行 1.8 ms  → 约 1.1x（打平）
     //   475 篇  串行 4.5  ms / 并行 2.1 ms  → 约 2.1x
     //   1900 篇 串行 18   ms / 并行 5.6 ms  → 约 3.0x
-    // 所以取 kParallelThreshold = 256：明显越过交叉点才并行，避免"为并行而并行"。
-    std::vector<std::vector<std::string>> tokenized(docCount);
-    constexpr size_t kParallelThreshold = 256;
-    if (docCount < kParallelThreshold) {
-        // 小语料：串行分词（避免无谓的线程开销）
-        for (size_t i = 0; i < docCount; ++i) {
-            tokenized[i] = tokenizer_.tokenize(docs[i].content);
-        }
-        poolSize_ = 1;                     // 本次构建实际使用的线程数（串行）
-    } else {
-        // 大语料：线程池并行分词，每个线程写自己的分片，无锁
-        // 线程数不必超过任务数：文档少时开满线程纯属浪费。
+    // 所以默认阈值 256：明显越过交叉点才并行，避免"为并行而并行"。
+    // 本项目语料 500 篇 > 256，因此默认走并行分支（线程池真正被用到）。
+    //
+    // 线程数不必超过任务数：文档少时开满线程纯属浪费。
+    const bool useParallel = (docCount >= parallelThreshold_);
+    size_t workers = 0;
+    std::unique_ptr<ThreadPool> pool;
+    if (useParallel) {
         size_t desired = static_cast<size_t>(std::thread::hardware_concurrency());
         if (desired == 0) {
-            desired = 2;                       // 拿不到硬件并发度时的兜底
+            desired = 2;                           // 拿不到硬件并发度时的兜底
         }
-        const size_t threadCount = std::min(desired, docCount);
+        workers = std::min(desired, docCount);
+        pool.reset(new ThreadPool(workers));
+        poolSize_ = workers;                       // 供 threadCount() 观察
+    } else {
+        poolSize_ = 1;                             // 串行：本次构建只用主线程
+    }
 
-        ThreadPool pool(threadCount);
-        poolSize_ = pool.size();
-        const size_t chunk = (docCount + poolSize_ - 1) / poolSize_;   // 向上取整分块
-
+    // 把一个区间 [0, count) 按线程数分块，交给线程池并行执行；
+    // 串行分支下就退化为"直接在主线程里跑一遍"，两条路径共用同一段循环体，
+    // 保证串行/并行只有"谁来跑"的区别，没有"跑什么"的区别。
+    auto forEachChunk = [&](size_t count, const std::function<void(size_t, size_t)>& body) {
+        if (!pool) {
+            body(0, count);
+            return;
+        }
+        if (count == 0) {
+            return;
+        }
+        const size_t chunk = (count + workers - 1) / workers;   // 向上取整分块
         std::vector<std::future<void>> futures;
-        futures.reserve(poolSize_);
-        for (size_t start = 0; start < docCount; start += chunk) {
-            const size_t end = std::min(start + chunk, docCount);
-            futures.push_back(pool.submit([this, &docs, &tokenized, start, end]() {
-                for (size_t i = start; i < end; ++i) {
-                    // 只写 tokenized[i]（本线程独占的分片），不碰任何共享结构
-                    tokenized[i] = tokenizer_.tokenize(docs[i].content);
-                }
-            }));
+        futures.reserve(workers);
+        for (size_t start = 0; start < count; start += chunk) {
+            const size_t end = std::min(start + chunk, count);
+            futures.push_back(pool->submit([&body, start, end]() { body(start, end); }));
         }
         for (std::future<void>& f : futures) {
-            f.get();                           // 等待所有分片完成（异常也会在此抛出）
+            f.get();          // 等待所有分片完成（任务里的异常也在此抛出）
         }
-    }   // 线程池析构：join 全部工作线程（优雅退出）
+    };
+
+    // ---------- 第 0 步：分词（并行；每个线程只写 tokenized[i]） ----------
+    std::vector<std::vector<std::string>> tokenized(docCount);
+    forEachChunk(docCount, [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            tokenized[i] = tokenizer_.tokenize(docs[i].content);
+        }
+    });
 
     // ---------- 第 1 步：单线程合并——建倒排索引 + 收集词典 ----------
+    // 这两件都要写共享结构（index_、termToDim_），保持单线程最省心：
+    // 一旦多线程写同一个 map，就必须加锁，而锁竞争会把并行退化成串行。
     for (size_t i = 0; i < docCount; ++i) {
         index_.addDocument(docs[i].id, tokenized[i]);
         for (const std::string& t : tokenized[i]) {
@@ -116,32 +137,57 @@ void SearchEngine::build(const std::vector<Document>& docs) {
     }
     vocabSize_ = termToDim_.size();   // 向量维度 = 词典大小
 
-    // ---------- 文档频率 df：每个词出现在几篇文档中 ----------
+    // ---------- 第 2 步：文档频率 df（并行；各线程写自己的 dfOfTerm[j]） ----------
+    // 先把词典摊平成 vector（序号 -> 词条），这样才能按下标分块并行；
+    // 各线程只写 dfOfTerm 中属于自己的那一段，最后单线程搬进 map。
+    std::vector<std::string> terms;
+    terms.reserve(vocabSize_);
     for (const auto& kv : termToDim_) {
-        documentFrequency_[kv.first] = index_.getDocumentFrequency(kv.first);
+        terms.push_back(kv.first);
+    }
+    std::vector<int> dfOfTerm(vocabSize_, 0);
+    forEachChunk(vocabSize_, [&](size_t begin, size_t end) {
+        for (size_t j = begin; j < end; ++j) {
+            dfOfTerm[j] = index_.getDocumentFrequency(terms[j]);   // 只读倒排索引
+        }
+    });
+    for (size_t j = 0; j < vocabSize_; ++j) {
+        documentFrequency_[terms[j]] = dfOfTerm[j];
     }
 
-    // ---------- 第 2 步：逐文档生成 TF-IDF 稠密向量（复用已分词结果） ----------
+    // ---------- 第 3 步：逐文档生成 TF-IDF 稠密向量（并行；各写 vectors[i]） ----------
+    // 这是整个构建里最重的一步（500 篇时约占一半时间：每篇要建一次词频表
+    // 并分配一条 2205 维的稠密向量），所以它最值得并行。
+    // 输入（tokenized / termToDim_ / documentFrequency_）全部只读，
+    // 输出按文档下标切开，线程之间零共享 → 不需要锁。
+    std::vector<std::vector<double>> vectors(docCount);
+    forEachChunk(docCount, [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            const std::vector<std::string>& tokens = tokenized[i];
+
+            // 1) 词频统计（同一词出现几次）
+            std::unordered_map<std::string, int> tf;
+            for (const std::string& t : tokens) {
+                ++tf[t];
+            }
+
+            // 2) 逐词填充向量：weight = tf * idf
+            //    （词典中绝大多数维度该文档没出现，保持 0，即"稀疏填充稠密向量"）
+            std::vector<double> vec(vocabSize_, 0.0);
+            for (const auto& kv : tf) {
+                const int dim = termToDim_.at(kv.first);           // 词 -> 维度
+                const double idf = computeIdf(documentFrequency_.at(kv.first));
+                vec[dim] = static_cast<double>(kv.second) * idf;
+            }
+            vectors[i] = std::move(vec);
+        }
+    });
+
+    // ---------- 第 4 步：登记到 docVectors_（单线程，只是移动指针，极快） ----------
     for (size_t i = 0; i < docCount; ++i) {
-        const std::vector<std::string>& tokens = tokenized[i];
-
-        // 1) 词频统计（同一词出现几次）
-        std::unordered_map<std::string, int> tf;
-        for (const std::string& t : tokens) {
-            ++tf[t];
-        }
-
-        // 2) 逐词填充向量：weight = tf * idf
-        //    （词典中绝大多数维度该文档没出现，保持 0，即"稀疏填充稠密向量"）
-        std::vector<double> vec(vocabSize_, 0.0);
-        for (const auto& kv : tf) {
-            const int dim = termToDim_.at(kv.first);           // 词 -> 维度
-            const double idf = computeIdf(documentFrequency_.at(kv.first));
-            vec[dim] = static_cast<double>(kv.second) * idf;
-        }
-        docVectors_[docs[i].id] = std::move(vec);
+        docVectors_[docs[i].id] = std::move(vectors[i]);
     }
-}
+}   // 线程池在此析构：join 全部工作线程（优雅退出）
 
 // 检索主流程。
 std::vector<SearchResult> SearchEngine::search(const std::string& query, int topK) const {
@@ -252,6 +298,16 @@ size_t SearchEngine::vocabularySize() const {
 // 构建时使用的线程池大小（并行分词用）。
 size_t SearchEngine::threadCount() const {
     return poolSize_;
+}
+
+// 设置并行阈值（文档数达到该值才启用线程池）。
+void SearchEngine::setParallelThreshold(size_t threshold) {
+    parallelThreshold_ = threshold;
+}
+
+// 当前并行阈值。
+size_t SearchEngine::parallelThreshold() const {
+    return parallelThreshold_;
 }
 
 // 两个等长向量的余弦相似度：cos = 点积 / (模长1 × 模长2)。

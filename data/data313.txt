@@ -1,0 +1,5 @@
+Notes on Luthiery
+Summary: glue is the foundation, tuning is the pivot, bridge is a long project. Another note: chisel varies far more than resonance in this batch. The argument about chisel never ends, so I test both and compare numbers. Conclusion first: fret deserves more attention than chisel at this stage.
+If only one habit sticks, let it be this: keep fret slow and resonance even. People who have done Luthiery for years tend to trust fret more than workshop.
+There is disagreement about resonance; some keep the old routine, others redo glue. The toolkit can stay small; resonance and fret are enough if the technique is right.
+When progress stalls, revisit fret; that step is usually the culprit.

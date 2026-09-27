@@ -1,0 +1,4 @@
+Notes on Espresso
+Another note: extraction varies far more than dialing in this batch. Conclusion first: yield deserves more attention than pressure at this stage. The routine splits into three parts: preparing basket, working dialing, finishing extraction.
+Over a long stretch basket makes more difference than any quick trick. Summary: portafilter is the foundation, tamping is the pivot, dialing is a long project. When progress stalls, revisit tamping; that step is usually the culprit.
+Seasonal shifts affect basket more than beginners expect. Espresso rewards patience: hold basket steady and the rest follows.

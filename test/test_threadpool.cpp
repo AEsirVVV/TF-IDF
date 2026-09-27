@@ -4,42 +4,29 @@
 //   1. 基本用法：向线程池提交任务，用 std::future 取回结果；
 //   2. 并发执行验证：多个任务确实并行跑完（原子计数器统计完成数）；
 //   3. 优雅退出：线程池析构时 join 全部线程，不会挂死或残留线程；
-//   4. 项目集成：SearchEngine::build 按语料规模选择串行/并行，
-//      并验证并行构建的相似度与串行构建完全一致。
+//   4. 项目集成：用真实语料（500 篇）验证
+//      —— 100 篇 < 阈值 256 走串行（线程数 = 1）；
+//      —— 500 篇 > 阈值 256 走并行（线程数 = 32）；
+//      —— 同一份 500 篇语料，用 setParallelThreshold 强制串行做对照组，
+//         逐名次比对分数，证明多线程没有引入任何错误。
 
+#include "FileReader.h"
 #include "SearchEngine.h"
 #include "ThreadPool.h"
 
+#include "../src/FileReader.cpp"
 #include "../src/InvertedIndex.cpp"
 #include "../src/SearchEngine.cpp"
 #include "../src/ThreadPool.cpp"
 #include "../src/Tokenizer.cpp"
 
+#include <algorithm>   // std::min
 #include <atomic>      // std::atomic（无锁计数）
 #include <cstdio>
 #include <cstdlib>     // std::system
-#include <fstream>
 #include <iostream>
-#include <sstream>
-#include <unordered_map>
+#include <limits>      // std::numeric_limits（强制串行用）
 #include <vector>
-
-namespace {
-
-bool readDataDoc(int n, std::string& out) {
-    std::ostringstream p1, p2;
-    p1 << "data/data" << n << ".txt";
-    p2 << "TF-IDF/data/data" << n << ".txt";
-    std::ifstream in(p1.str());
-    if (!in.is_open()) { in.open(p2.str()); }
-    if (!in.is_open()) { return false; }
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    out = buf.str();
-    return true;
-}
-
-} // namespace
 
 int main() {
 #ifdef _WIN32
@@ -88,95 +75,92 @@ int main() {
                   << "（应等于 " << kTasks << "）" << std::endl;
     }
 
-    // ---------- 3. 项目集成：并行构建与串行结果完全一致 ----------
-    std::vector<Document> docs;
-    for (int i = 1; i <= 19; ++i) {
-        std::string text;
-        if (!readDataDoc(i, text)) { continue; }
-        std::ostringstream name;
-        name << "data" << i << ".txt";
-        docs.push_back({i - 1, name.str(), text});
+    // ---------- 3. 项目集成：同一份语料下，并行构建与串行构建必须完全一致 ----------
+    // 真实语料（当前 500 篇，> 默认阈值 256），用 FileReader 读入，与实际服务同源。
+    FileReader reader;
+    std::vector<Document> docs = reader.readAllDocuments("data");
+    if (docs.empty()) {
+        docs = reader.readAllDocuments("TF-IDF/data");
+    }
+    if (docs.empty()) {
+        std::cout << "\n读不到 data/ 语料，跳过集成演示（请确认工作目录）" << std::endl;
+        return 0;
     }
 
-    // (a) 小语料（19 篇 < 并行阈值 256）：走串行分词，不付线程开销
+    // (a) 小语料（取前 100 篇 < 阈值 256）：应走串行分支，不付线程开销
+    std::vector<Document> smallDocs(docs.begin(),
+                                    docs.begin() + std::min<size_t>(100, docs.size()));
     SearchEngine small;
     if (!small.loadStopwords("stopwords.txt")) {
         small.loadStopwords("TF-IDF/stopwords.txt");
     }
-    small.build(docs);
-
+    small.build(smallDocs);
     std::cout << "\n【小语料】文档数 = " << small.documentCount()
               << "，线程数 = " << small.threadCount()
-              << "（应 = 1：低于阈值 256，走串行，避免无谓线程开销）"
-              << "，词典大小 = " << small.vocabularySize() << "（应为 1245）" << std::endl;
+              << "（应 = 1：低于阈值 " << small.parallelThreshold() << "，走串行，不付线程开销）"
+              << std::endl;
 
-    auto smallRes = small.search("机器学习", 3);
-    std::cout << "  查询 \"机器学习\"：" << std::endl;
-    for (size_t i = 0; i < smallRes.size(); ++i) {
-        std::printf("    #%zu %-12s %.2f%%  相关=%s\n", i + 1, smallRes[i].docName.c_str(),
-                    smallRes[i].score * 100.0, smallRes[i].relevant ? "是" : "否");
+    // (b) 全量语料（500 篇 > 阈值 256）：默认走线程池并行分词
+    SearchEngine parallel;
+    if (!parallel.loadStopwords("stopwords.txt")) {
+        parallel.loadStopwords("TF-IDF/stopwords.txt");
     }
+    parallel.build(docs);
+    std::cout << "【全量语料】文档数 = " << parallel.documentCount()
+              << "，线程数 = " << parallel.threadCount() << "（应 > 1：并行分支已生效）"
+              << "，词典大小 = " << parallel.vocabularySize() << std::endl;
 
-    // (b) 大语料（复制 24 份 → 456 篇 ≥ 阈值）：走线程池并行分词
-    std::vector<Document> big;
-    big.reserve(docs.size() * 24);
-    for (int rep = 0; rep < 24; ++rep) {
-        for (const Document& d : docs) {
-            Document copy = d;
-            copy.id = static_cast<int>(big.size());
-            copy.name = d.name + "#" + std::to_string(rep);
-            big.push_back(copy);
-        }
+    // (c) 同一份 500 篇语料，把阈值调到 SIZE_MAX 强制串行 —— 得到对照组。
+    //     这样"串行 vs 并行"是在完全相同的输入上比较，最能说明多线程没写坏数据。
+    SearchEngine serial;
+    if (!serial.loadStopwords("stopwords.txt")) {
+        serial.loadStopwords("TF-IDF/stopwords.txt");
     }
+    serial.setParallelThreshold(std::numeric_limits<size_t>::max());   // 强制串行
+    serial.build(docs);
+    std::cout << "【强制串行】文档数 = " << serial.documentCount()
+              << "，线程数 = " << serial.threadCount() << "（应 = 1：阈值 = SIZE_MAX）"
+              << "，词典大小 = " << serial.vocabularySize() << std::endl;
 
-    SearchEngine large;
-    if (!large.loadStopwords("stopwords.txt")) {
-        large.loadStopwords("TF-IDF/stopwords.txt");
-    }
-    large.build(big);                    // ← 内部用线程池并行分词
-
-    std::cout << "\n【大语料】文档数 = " << large.documentCount()
-              << "，线程数 = " << large.threadCount() << "（应 > 1：并行分支已生效）"
-              << "，词典大小 = " << large.vocabularySize()
-              << "（应仍为 1245：重复文档不产生新词）" << std::endl;
-
-    auto largeRes = large.search("机器学习", 3);
-    std::cout << "  查询 \"机器学习\"：" << std::endl;
-    for (size_t i = 0; i < largeRes.size(); ++i) {
-        std::printf("    #%zu %-12s %.2f%%  相关=%s\n", i + 1, largeRes[i].docName.c_str(),
-                    largeRes[i].score * 100.0, largeRes[i].relevant ? "是" : "否");
-    }
-
-    // (c) 一致性断言：复制语料时 N 与 df 同比例放大，idf = ln(N/df) 不变，
-    //     因此并行构建出的每篇文档相似度应与 19 篇串行构建完全相同。
-    //     注意：24 个副本内容相同 → 分数相同 → 名次并列，所以不能逐位比对，
-    //     而要按"文档家族"（dataX.txt vs dataX.txt#rep）对照分数。
-    auto largeAll = large.search("机器学习", 1000);   // 取全部文档的分数
-    std::unordered_map<std::string, double> scoreOf;
-    for (const SearchResult& r : largeAll) {
-        scoreOf[r.docName] = r.score;
-    }
-
+    // (d) 逐篇对照：对多个查询取全部文档的分数，逐名次比较（分数与顺序都要一致）
+    const char* kQueries[] = {"机器学习", "basketball", "茶文化", "starter", "铁路"};
     bool same = true;
-    std::cout << "\n一致性检查（串行 19 篇 vs 并行 456 篇，逐篇对照相似度）：" << std::endl;
-    for (const SearchResult& r : smallRes) {
-        auto it = scoreOf.find(r.docName + "#0");
-        if (it == scoreOf.end()) {
-            same = false;
-            std::cout << "    " << r.docName << " 在并行结果中缺失 ✗" << std::endl;
-            continue;
+    std::cout << "\n一致性检查（同一份 " << docs.size()
+              << " 篇语料：并行 vs 强制串行，逐名次对照）：" << std::endl;
+    for (const char* q : kQueries) {
+        const std::vector<SearchResult> rp = parallel.search(q, 100000);   // 取全部命中
+        const std::vector<SearchResult> rs = serial.search(q, 100000);
+
+        bool ok = (rp.size() == rs.size());
+        size_t mismatch = 0;
+        if (ok) {
+            for (size_t i = 0; i < rp.size(); ++i) {
+                const double diff = rp[i].score - rs[i].score;
+                if (rp[i].docName != rs[i].docName || diff > 1e-12 || diff < -1e-12) {
+                    ok = false;
+                    ++mismatch;
+                }
+            }
         }
-        const double diff = it->second - r.score;
-        if (diff > 1e-12 || diff < -1e-12) { same = false; }
-        std::printf("    %-12s 串行 %6.2f%%  并行 %6.2f%%  %s\n", r.docName.c_str(),
-                    r.score * 100.0, it->second * 100.0,
-                    (diff <= 1e-12 && diff >= -1e-12) ? "一致" : "不一致 ✗");
+        if (!ok) { same = false; }
+        std::printf("    查询 %-12s 命中 %5zu 篇  名次与分数 %s",
+                    q, rp.size(), ok ? "完全一致 ✓\n" : "存在差异 ✗\n");
+        if (!ok && rp.size() > 0) {
+            std::printf("      （不一致名次数 = %zu，例如并行 #1 = %s / 串行 #1 = %s）\n",
+                        mismatch, rp[0].docName.c_str(), rs[0].docName.c_str());
+        }
     }
     std::cout << "结论：并行构建与串行构建 " << (same ? "结果完全一致 ✓（多线程没有引入错误）"
-                                                       : "结果不一致 ✗")
+                                                        : "结果不一致 ✗")
               << std::endl;
-    std::cout << "（原理：语料整体复制 k 份后 N 与 df 同步放大，idf = ln(N/df) 不变，"
-              << "每篇文档的向量和余弦相似度都不变；副本并列同名次）" << std::endl;
+
+    // (e) 抽查：默认路径（500 篇并行）的检索结果仍是熟悉的排序
+    auto res = parallel.search("机器学习", 3);
+    std::cout << "\n【检索抽查】查询 \"机器学习\"（并行构建的索引）：" << std::endl;
+    for (size_t i = 0; i < res.size(); ++i) {
+        std::printf("    #%zu %-12s %.2f%%  相关=%s\n", i + 1, res[i].docName.c_str(),
+                    res[i].score * 100.0, res[i].relevant ? "是" : "否");
+    }
 
     std::cout << "\n===== 演示结束 =====" << std::endl;
     return 0;

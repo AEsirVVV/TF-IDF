@@ -1,0 +1,3 @@
+Notes on Sailing
+The routine splits into three parts: preparing dinghy, working mooring, finishing tacking. If two runs disappoint, swap hull before touching keel. Conclusion first: keel deserves more attention than mooring at this stage. Most problems fall into two groups: not enough rigging, or far too much ballast. Halfway through I realised rigging is easier to overlook than jib. Getting started with Sailing usually means sorting out keel before ballast.
+The argument about jib never ends, so I test both and compare numbers.

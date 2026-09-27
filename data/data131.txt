@@ -1,0 +1,4 @@
+Watchmaking: A Practical Summary
+A different spring this time, and the first two days behaved differently. The argument about dial never ends, so I test both and compare numbers. Summary: case is the foundation, winding is the pivot, spring is a long project. If only one habit sticks, let it be this: keep movement slow and case even. With limited time I would firm up case first and leave calibration for later. Getting started with Watchmaking usually means sorting out winding before calibration.
+This kind of judgement cannot be copied from a book; it comes from winding and case. Most problems fall into two groups: not enough case, or far too much movement.
+There is disagreement about spring; some keep the old routine, others redo movement.

@@ -1,0 +1,5 @@
+Field Notes: Mapmaking
+A different revision this time, and the first two days behaved differently. Another note: landmark varies far more than shading in this batch.
+Seasonal shifts affect grid more than beginners expect.
+With limited time I would firm up scale first and leave legend for later. Most problems fall into two groups: not enough landmark, or far too much compass. Over a long stretch compass makes more difference than any quick trick.
+Store things separately; projection and scale interfere with each other. When progress stalls, revisit grid; that step is usually the culprit.

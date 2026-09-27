@@ -1,0 +1,4 @@
+Working Notes on Espresso
+Espresso rewards patience: hold crema steady and the rest follows. Getting started with Espresso usually means sorting out dialing before extraction.
+Most problems fall into two groups: not enough basket, or far too much portafilter. A different roast this time, and the first two days behaved differently. Summary: extraction is the foundation, basket is the pivot, bitterness is a long project. When progress stalls, revisit extraction; that step is usually the culprit.
+Reviewing my notes, basket and roast need different handling in cold weather.

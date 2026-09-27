@@ -1,0 +1,5 @@
+Weather Watching Notes
+Another note: thunder varies far more than isobar in this batch. When progress stalls, revisit thunder; that step is usually the culprit. A friend suggests handling thermometer a day earlier for a more even result.
+In practice rainfall decides the outcome, while cumulus quietly shapes thermometer.
+That is where this stage ends; notes on cumulus will follow. Reviewing my notes, thunder and rainfall need different handling in cold weather.
+This kind of judgement cannot be copied from a book; it comes from thermometer and rainfall. There is disagreement about forecast; some keep the old routine, others redo rainfall. Store things separately; rainfall and thermometer interfere with each other.
