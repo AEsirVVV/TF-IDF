@@ -9,6 +9,11 @@
 - 支持中英文：英文按词切分、中文按单字切分，UTF-8 / GBK 自动识别
 - 中文停用词过滤、大小写归一化
 - 倒排索引预筛选候选文档（避免全量扫描）
+- **多线程并行构建**：自实现 `ThreadPool`（任务队列 + 互斥锁 + 条件变量 +
+  `std::future` + 优雅退出），`build()` 并行分词、无锁合并（线程数取
+  `min(硬件并发度, 文档数)`）；按语料规模分流——文档数 < 256 走串行
+  （并行有约 1.3 ms 固定开销，小语料下反而更慢），≥ 256 才启用线程池
+  （实测 1900 篇约 3 倍加速）
 - 相关度判断：每条结果标记"✓ 相关 / ✗ 不相关"（是否包含查询全部词条），
   并统计前三篇正确率；排序带"查询覆盖度惩罚"，保证相关文档排前面
 - Web 前端：文档库、搜索框、相似度柱状图、原文查看弹窗
@@ -92,15 +97,16 @@ mingw32-make clean    :: 清理 .o / .d / main.exe
 - 单元级：编译运行 `test/test_verify.cpp`（23 条金标准断言，全过退出码 0）；
 - 端到端：服务运行中执行 `powershell -File test\verify_http.ps1`（对 /search 发真实 HTTP 请求断言，全过退出码 0）；
 - `test/` 下的其他演示程序（test_tokenizer / test_invertedindex /
-  test_searchengine / test_filereader）自带 `main()`，可单独编译运行， 演示各模块行为。
+  test_searchengine / test_filereader / test_threadpool）自带 `main()`，
+  可单独编译运行，演示各模块行为（含线程池与并行构建）。
 
 ## 项目结构
 
 ```
 ├── Makefile              构建脚本（MINGW_HOME 可移植配置）
-├── src/                  后端源码（main.cpp + 四个模块 .cpp）
-├── include/              头文件（四个模块 + httplib.h）
-├── test/                 各模块演示程序 + 验证工具
+├── src/                  后端源码（main.cpp + 四个业务模块 + ThreadPool.cpp）
+├── include/              头文件（五个模块 + httplib.h）
+├── test/                 各模块演示程序 + 验证工具（含 test_threadpool.cpp）
 ├── web/index.html        前端页面
 ├── data/                 19 篇样例文档（中英混合、13 个题材、UTF-8）
 ├── lib/                  第三方库（当前为空）
@@ -112,6 +118,8 @@ mingw32-make clean    :: 清理 .o / .d / main.exe
 
 ## 技术栈
 - **语言**：C++17（纯 STL）
+- **并发**：`std::thread` + `std::mutex` + `std::condition_variable` +
+  `std::future`（自实现线程池，用于并行构建索引）
 - **HTTP**：cpp-httplib（单头文件，MIT）
 - **构建**：GNU Make + MinGW-w64
 - **前端**：HTML / JS / Chart.js（CDN）

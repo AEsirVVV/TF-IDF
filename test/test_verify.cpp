@@ -15,6 +15,7 @@
 #include "../src/FileReader.cpp"
 #include "../src/InvertedIndex.cpp"
 #include "../src/SearchEngine.cpp"
+#include "../src/ThreadPool.cpp"   // SearchEngine::build 使用线程池并行分词
 #include "../src/Tokenizer.cpp"
 
 #include <cmath>     // std::log
